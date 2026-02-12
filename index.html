@@ -761,6 +761,25 @@
             padding: 20px;
             font-size: 0.9rem;
         }
+
+        /* Loading State */
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #888;
+        }
+
+        .loading-spinner {
+            font-size: 2rem;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            margin-bottom: 10px;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
@@ -886,9 +905,22 @@
     </div>
 
     <script>
-        const STATUS_KEY = 'patient_status_history';
-        const MELHORAS_KEY = 'patient_melhoras';
+        // ========== CONFIGURAÇÃO ==========
+        // 1. Crie uma conta em https://jsonbin.io
+        // 2. Vá em API Keys e copie seu X-Master-Key
+        // 3. Cole abaixo:
+        const JSONBIN_API_KEY = '$2a$10$YOUR_API_KEY_HERE';
+
+        // Senha para atualizar status
         const ADMIN_PASSWORD = 'melhoras';
+        // ===================================
+
+        const JSONBIN_BASE = 'https://api.jsonbin.io/v3/b';
+        const BIN_ID_KEY = 'rafinha_bin_id';
+
+        let appData = { statusHistory: [], melhoras: [] };
+        let binId = localStorage.getItem(BIN_ID_KEY);
+        let isLoading = true;
 
         const moodData = {
             terrible: { emoji: '🤒', text: 'Muito mal (mandem ajuda)' },
@@ -939,17 +971,77 @@
         }
 
         function getStatusHistory() {
-            return JSON.parse(localStorage.getItem(STATUS_KEY)) || [];
+            return appData.statusHistory || [];
         }
 
         function getMelhoras() {
-            return JSON.parse(localStorage.getItem(MELHORAS_KEY)) || [];
+            return appData.melhoras || [];
+        }
+
+        // Cloud Storage Functions
+        async function createBin() {
+            const response = await fetch('https://api.jsonbin.io/v3/b', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Master-Key': JSONBIN_API_KEY,
+                    'X-Bin-Name': 'rafinha-status'
+                },
+                body: JSON.stringify({ statusHistory: [], melhoras: [] })
+            });
+            const data = await response.json();
+            return data.metadata.id;
+        }
+
+        async function loadFromCloud() {
+            try {
+                if (!binId) {
+                    binId = await createBin();
+                    localStorage.setItem(BIN_ID_KEY, binId);
+                }
+
+                const response = await fetch(`${JSONBIN_BASE}/${binId}/latest`, {
+                    headers: { 'X-Master-Key': JSONBIN_API_KEY }
+                });
+                const data = await response.json();
+                appData = data.record || { statusHistory: [], melhoras: [] };
+            } catch (error) {
+                console.error('Erro ao carregar dados:', error);
+                appData = { statusHistory: [], melhoras: [] };
+            }
+            isLoading = false;
+        }
+
+        async function saveToCloud() {
+            try {
+                await fetch(`${JSONBIN_BASE}/${binId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Master-Key': JSONBIN_API_KEY
+                    },
+                    body: JSON.stringify(appData)
+                });
+            } catch (error) {
+                console.error('Erro ao salvar dados:', error);
+            }
         }
 
         function renderStatus() {
             const history = getStatusHistory();
             const container = document.getElementById('status-display');
             const historyBtn = document.getElementById('historyBtn');
+
+            if (isLoading) {
+                container.innerHTML = `
+                    <div class="status-card loading">
+                        <div class="loading-spinner">🌡️</div>
+                        <p>Carregando...</p>
+                    </div>
+                `;
+                historyBtn.style.display = 'none';
+                return;
+            }
 
             historyBtn.style.display = history.length > 1 ? 'block' : 'none';
 
@@ -1182,7 +1274,7 @@
             });
         }
 
-        document.getElementById('statusForm').addEventListener('submit', function(e) {
+        document.getElementById('statusForm').addEventListener('submit', async function(e) {
             e.preventDefault();
 
             const symptoms = Array.from(document.querySelectorAll('.symptoms-checkboxes input:checked'))
@@ -1197,18 +1289,16 @@
                 timestamp: Date.now()
             };
 
-            const history = getStatusHistory();
-            history.unshift(newStatus);
-            localStorage.setItem(STATUS_KEY, JSON.stringify(history));
+            appData.statusHistory.unshift(newStatus);
+            await saveToCloud();
 
             toggleAdmin();
             renderStatus();
         });
 
-        function sendGoodEnergy(name) {
-            const melhoras = getMelhoras();
-            melhoras.unshift({ name, timestamp: Date.now() });
-            localStorage.setItem(MELHORAS_KEY, JSON.stringify(melhoras));
+        async function sendGoodEnergy(name) {
+            appData.melhoras.unshift({ name, timestamp: Date.now() });
+            saveToCloud(); // Don't await - let it save in background
 
             const container = document.getElementById('heartsContainer');
             const hearts = ['❤️', '💕', '💗', '💖', '💝', '💓', '💞', '🩷', '🧡', '💛'];
@@ -1253,12 +1343,22 @@
             if (e.target === this) hideNameModal();
         });
 
-        // Initial render
-        renderStatus();
-        renderMelhoras();
+        // Initial load from cloud
+        async function init() {
+            renderStatus(); // Show loading state
+            renderMelhoras();
 
-        // Auto-refresh every 30 seconds
-        setInterval(() => {
+            await loadFromCloud();
+
+            renderStatus();
+            renderMelhoras();
+        }
+
+        init();
+
+        // Auto-refresh every 30 seconds (reload from cloud)
+        setInterval(async () => {
+            await loadFromCloud();
             renderStatus();
             renderMelhoras();
         }, 30000);
