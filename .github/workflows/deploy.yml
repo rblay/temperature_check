@@ -25,9 +25,13 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Inject Secrets
+        env:
+          API_KEY: ${{ secrets.JSONBIN_API_KEY }}
+          BIN_ID: ${{ secrets.JSONBIN_BIN_ID }}
         run: |
-          sed -i "s|__JSONBIN_API_KEY__|${{ secrets.JSONBIN_API_KEY }}|g" index.html
-          sed -i "s|__JSONBIN_BIN_ID__|${{ secrets.JSONBIN_BIN_ID }}|g" index.html
+          # Use awk to avoid sed issues with special characters
+          awk -v key="$API_KEY" '{gsub(/__JSONBIN_API_KEY__/, key)}1' index.html > tmp && mv tmp index.html
+          awk -v id="$BIN_ID" '{gsub(/__JSONBIN_BIN_ID__/, id)}1' index.html > tmp && mv tmp index.html
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
