@@ -905,11 +905,8 @@
     </div>
 
     <script>
-        // ========== CONFIGURAÇÃO ==========
-        // 1. Crie uma conta em https://jsonbin.io
-        // 2. Vá em API Keys e copie seu X-Master-Key
-        // 3. Cole abaixo:
-        const JSONBIN_API_KEY = '$2a$10$YOUR_API_KEY_HERE';
+        // API Key is injected by GitHub Actions at deploy time
+        const JSONBIN_API_KEY = '__JSONBIN_API_KEY__';
 
         // Senha para atualizar status
         const ADMIN_PASSWORD = 'melhoras';
